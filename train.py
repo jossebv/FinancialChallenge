@@ -1,4 +1,5 @@
 import os
+import sys
 import shutil
 import neptune
 import numpy as np
@@ -41,7 +42,7 @@ def init_training(options_path: str):
     total_steps = 0
     for epoch in range(opt.epochs):
         model.train()
-        for data in tqdm(loader):
+        for data in tqdm(loader, desc=f"Epoch {epoch}", file=sys.stdout):
             total_steps += 1
             model.backward(data)
 
