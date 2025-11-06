@@ -1,5 +1,7 @@
 import os
+import shutil
 import neptune
+import numpy as np
 from tqdm import tqdm
 from data.dataloader import FinanceDataLoader
 from models.FiT import FiT
@@ -20,13 +22,25 @@ def init_neptune(opt: Opt):
 
 def init_training(options_path: str):
     opt = Opt.from_yaml(options_path)
+    checkpoints_dir = os.path.join(opt.checkpoints_path, opt.name)
+    stored_config_path = os.path.join(checkpoints_dir, "config.yaml")
+    if os.path.abspath(options_path) != os.path.abspath(stored_config_path):
+        shutil.copyfile(options_path, stored_config_path)
     neptune_run = init_neptune(opt)
 
     model = FiT(opt)
     loader = FinanceDataLoader(opt)
 
+    test_opt = opt.to_dict()
+    test_opt["phase"] = "test"
+    test_opt["batch_size"] = 1
+    test_opt["num_workers"] = 1
+    test_opt = opt.from_dict(test_opt)
+    test_loader = FinanceDataLoader(test_opt)
+
     total_steps = 0
     for epoch in range(opt.epochs):
+        model.train()
         for data in tqdm(loader):
             total_steps += 1
             model.backward(data)
@@ -47,6 +61,14 @@ def init_training(options_path: str):
             )
             model.save_checkpoint(save_path)
             model.save_checkpoint(latest_save_path)
+
+        model.eval()
+        losses = np.zeros(len(test_loader))
+        for i, data in enumerate(tqdm(test_loader)):
+            pred = model.pred(data).item()
+            losses[i] = (pred - data["y_reg"]) ** 2
+        mse = losses.mean()
+        neptune_run["test/loss"].append(mse)
 
 
 if __name__ == "__main__":

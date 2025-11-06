@@ -1,11 +1,11 @@
-name: "test"
+name: "window_sweep"
 neptune_project_name: "FinancialChallenge"
-neptune_group_tags: ["train", "dl"]
+neptune_group_tags: ["train", "window"]
 phase: "train"
 dataroot: "data/processed/es1dia_cln.csv"
 checkpoints_path: "checkpoints/"
 window: 50
-window_stride: 25
+window_stride: null
 reg_feature: "log_return"
 features: [
         "overnight_gap",
@@ -21,13 +21,13 @@ masked_features: ["log_return", "log_range", "vol_z"]
 shuffle: True
 batch_size: 16
 num_workers: 1
-d_model: 256
+d_model: 128
 dow_embedding_dim: 4
 k: 5
 s: 2 # will default to k (=5)
 nhead: 2
 t_num_layers: 3
 task_type: "reg"
-lr: 0.00001
+lr: 0.0001
 margin_eps: 0.0005
-device: "mps"
+device: "cuda"

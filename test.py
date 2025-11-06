@@ -13,7 +13,7 @@ def init_neptune(opt: Opt):
         name=opt.name,
     )
     neptune_run["params"] = opt.to_dict()
-    if opt.neptune_group_tags != "":
+    if opt.neptune_group_tags:
         neptune_run["sys/group_tags"].add(opt.neptune_group_tags)
 
     return neptune_run

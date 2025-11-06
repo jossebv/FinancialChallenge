@@ -1,6 +1,7 @@
 import os
-from dataclasses import dataclass, asdict, replace
-from typing import Optional, Literal, Union, Any, Mapping
+from dataclasses import MISSING, dataclass, asdict, replace
+from collections.abc import Mapping
+from typing import Literal, Any
 import torch
 import yaml
 
@@ -21,7 +22,7 @@ class Opt:
     masked_features: list[str]
     checkpoints_path: str
     window: int
-    window_stride: Optional[int] = None
+    window_stride: int | None = None
     drop_tail: bool = True
     split_ratio: float = 0.9
     batch_size: int = 8
@@ -30,11 +31,11 @@ class Opt:
     shuffle: bool = False
 
     # --- Model / tokenizer ---
-    in_channels: Optional[int] = None
+    in_channels: int | None = None
     d_model: int = 128
     dow_embedding_dim: int = 8
     k: int = 5  # kernel size
-    s: Optional[int] = None  # stride; if None -> k (set in __post_init__)
+    s: int | None = None  # stride; if None -> k (set in __post_init__)
     nhead: int = 4
     t_num_layers: int = 2
     head_hidden: int = 0  # 0 = single linear
@@ -44,7 +45,7 @@ class Opt:
     phase: Literal["train", "test"] = "train"
     task_type: TaskType = "reg"
     lr: float = 3e-4
-    margin_eps: Optional[float] = None
+    margin_eps: int | None = None
     log_step: int = 10
     save_step: int = 5
 
@@ -52,7 +53,7 @@ class Opt:
     load_path: str = ""
 
     # --- System ---
-    device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu"
+    device: str | torch.device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # --- Derived / validation ---
     def __post_init__(self):
@@ -100,7 +101,7 @@ class Opt:
             )
         if self.window < 0:
             raise ValueError(f"Window size can't be lower than 0, got {self.window}")
-        if self.window_stride < 0:
+        if self.window_stride is None or self.window_stride < 0:
             raise ValueError(
                 f"Stride size can't be lower than 0, got {self.window_stride}"
             )
@@ -133,7 +134,92 @@ class Opt:
     def from_yaml(cls, path: str) -> "Opt":
         with open(path, "r") as f:
             data = yaml.safe_load(f) or {}
+        if not isinstance(data, Mapping):
+            raise ValueError(f"Configuration at {path} must be a mapping.")
+        data = dict(data)
+        data = cls._expand_test_config(data, path)
         return cls.from_dict(data)
+
+    @classmethod
+    def _required_field_names(cls) -> set[str]:
+        return {
+            name
+            for name, field in cls.__dataclass_fields__.items()
+            if field.default is MISSING and field.default_factory is MISSING
+        }
+
+    @classmethod
+    def _expand_test_config(cls, data: dict, source_path: str) -> dict:
+        if data.get("phase") != "test":
+            return data
+
+        required_fields = cls._required_field_names()
+        missing_required = required_fields - data.keys()
+
+        if not missing_required:
+            if "load_path" not in data:
+                checkpoints_root = data.get("checkpoints_path", "checkpoints")
+                data["load_path"] = os.path.join(
+                    checkpoints_root, data["name"], "checkpoint_latest.pt"
+                )
+            return data
+
+        if "name" not in data:
+            raise ValueError(
+                f"Test configuration {source_path} must include the 'name' of the run."
+            )
+
+        config_candidates = []
+
+        load_path = data.get("load_path")
+        if load_path:
+            config_candidates.append(
+                os.path.join(os.path.dirname(load_path), "config.yaml")
+            )
+
+        checkpoints_root = data.get("checkpoints_path", "checkpoints")
+        config_candidates.append(
+            os.path.join(checkpoints_root, data["name"], "config.yaml")
+        )
+
+        training_config_path = next(
+            (candidate for candidate in config_candidates if os.path.exists(candidate)),
+            None,
+        )
+        if training_config_path is None:
+            raise FileNotFoundError(
+                f"Unable to locate stored training config for '{data['name']}'. "
+                f"Tried: {', '.join(config_candidates)}"
+            )
+
+        with open(training_config_path, "r") as f:
+            base_data = yaml.safe_load(f) or {}
+
+        if base_data.get("name") and base_data["name"] != data["name"]:
+            raise ValueError(
+                f"Stored training config at {training_config_path} belongs to run "
+                f"'{base_data['name']}', but test config requested '{data['name']}'."
+            )
+
+        merged = {**base_data, **data}
+        merged.setdefault(
+            "checkpoints_path", base_data.get("checkpoints_path", checkpoints_root)
+        )
+        merged.setdefault(
+            "load_path",
+            os.path.join(
+                merged["checkpoints_path"], merged["name"], "checkpoint_latest.pt"
+            ),
+        )
+
+        remaining_missing = required_fields - merged.keys()
+        if remaining_missing:
+            raise ValueError(
+                f"Test configuration {source_path} is missing required settings even "
+                f"after merging with {training_config_path}: {sorted(remaining_missing)}"
+            )
+
+        return merged
 
     def updated(self, **overrides) -> "Opt":
         """Return a new Opt with overrides (immutability-friendly)."""

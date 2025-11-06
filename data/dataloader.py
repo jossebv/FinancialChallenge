@@ -1,6 +1,5 @@
-import os
 import math
-from pandas.io.formats.style import pd
+import pandas as pd
 import torch
 from torch.utils.data import DataLoader, Dataset
 from typing import Literal, List
@@ -20,11 +19,15 @@ class SequenceWindowDataset(Dataset):
 
     def __init__(self, opt: Opt):
         self.window = opt.window
-        self.stride = opt.window_stride
+        self.stride = opt.window_stride or self.window if opt.phase == "train" else 1
         self.drop_tail = opt.drop_tail
         self.reg_feature = opt.reg_feature
         self.features = opt.features
-        self.masked_features = opt.masked_features
+        self.masked_features = [
+            masked_feature
+            for masked_feature in opt.masked_features
+            if masked_feature in self.features
+        ]
         self.data = self.load_data(
             opt.dataroot, opt.features, opt.split_ratio, opt.phase
         )
@@ -44,7 +47,7 @@ class SequenceWindowDataset(Dataset):
 
     def load_data(
         self,
-        dataroot: os.PathLike,
+        dataroot: str,
         features: List[str],
         train_ratio: float = 0.85,
         phase: Literal["train", "test"] = "train",
@@ -55,12 +58,12 @@ class SequenceWindowDataset(Dataset):
         data = data[:N] if phase == "train" else data[N:]
         if phase == "train":
             data = data[features]
-        return data
+        return pd.DataFrame(data)
 
     def __len__(self) -> int:
         return self._n
 
-    def __getitem__(self, idx: int) -> torch.Tensor:
+    def __getitem__(self, idx: int) -> dict:
         """
         Returns a tensor of shape [window, F].
         If drop_tail=False and the final window overruns, it is padded by repeating the last row.
@@ -73,20 +76,24 @@ class SequenceWindowDataset(Dataset):
 
         if end <= T:
             window = self.data[start:end]  # [window, F]
+            if not isinstance(window, pd.DataFrame):
+                raise RuntimeError("Window slice should be a DataFrame")
+
             target_idx = window.index[-1]
             y_reg = torch.Tensor([window.loc[target_idx, self.reg_feature]])
+            X = window[self.features].copy()
             if "dow" in self.features:
-                X = window[self.features].drop(columns=["dow"])
+                X = X.drop(columns=["dow"])
                 dow = torch.Tensor(window["dow"].to_numpy()).to(torch.int32)
-                X.loc[target_idx, self.masked_features] = 0
             else:
-                X = window
                 dow = None
 
+            X.loc[target_idx, self.masked_features] = 0
             X = torch.Tensor(X.to_numpy())
 
         else:  ## TODO: adapt dataloader to generate a mask
             # Need to pad the tail by repeating the final row
+            return {}
             needed = end - T
             base = self.X[start:T]
             pad = self.X[T - 1 : T].repeat(needed, 1)
