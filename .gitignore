@@ -19,4 +19,3 @@ wheels/
 # Ignore Checkpoints and Data
 checkpoints/
 data/raw/*
-data/processed/*
