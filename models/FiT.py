@@ -1,3 +1,4 @@
+import math
 from typing import Literal, Optional
 
 import torch
@@ -12,14 +13,15 @@ class FiTokenizer(nn.Module):
         s = k if s is None else s
 
         self.d_model = opt.d_model
+        self.dropout = nn.Dropout(p=0.1)
         self.dow_emb = nn.Embedding(
             num_embeddings=5, embedding_dim=opt.dow_embedding_dim
         )
         self.conv = nn.Sequential(
             nn.Conv1d(opt.in_channels, opt.d_model, kernel_size=k, stride=s, padding=0),
             nn.GELU(),
-            nn.BatchNorm1d(opt.d_model),
         )
+        self.layer_norm = nn.LayerNorm(opt.d_model)
 
     def get_sinusoidal_positional_encoding(self, seq_len, d_model, device):
         position = torch.arange(seq_len, dtype=torch.float, device=device).unsqueeze(1)
@@ -44,13 +46,19 @@ class FiTokenizer(nn.Module):
             x = torch.cat([features, dow_emb], dim=-1).permute(0, 2, 1)  # (B, C, T)
         else:
             x = features.permute(0, 2, 1)
+
         z = self.conv(x)
         z = z.transpose(1, 2)  # (B, T, D)
+
+        z = z * math.sqrt(self.d_model)
 
         # Add positional encoding
         _, T, D = z.size()
         pe = self.get_sinusoidal_positional_encoding(T, D, z.device)  # (T, D)
         z = z + pe.unsqueeze(0)  # (B, T, D)
+
+        z = self.layer_norm(z)
+        z = self.dropout(z)
 
         return z
 
@@ -62,14 +70,16 @@ class FiTCore(nn.Module):
         enc = nn.TransformerEncoderLayer(
             opt.d_model,
             opt.nhead,
+            dim_feedforward=4 * opt.d_model,
             batch_first=True,
+            norm_first=True,
         )
         self.transformer = nn.TransformerEncoder(enc, opt.t_num_layers)
 
     def forward(self, x: dict):
         z = self.tokenizer(x)
         z_hat = self.transformer(z)
-        return z_hat[:, -1, :]
+        return z_hat.mean(dim=1)
 
 
 class RegressionHead(nn.Module):
@@ -122,11 +132,12 @@ class FiT(nn.Module):
 
         if self.task_type in ("reg", "multi"):
             self.reg_head = RegressionHead(opt)
-            self.reg_loss = nn.MSELoss()
+            self.reg_loss = nn.HuberLoss(delta=1)
         if self.task_type in ("cls", "multi"):
             self.cls_head = BinaryClsHead(opt)
             self.cls_loss = nn.BCEWithLogitsLoss()
 
+        self.init_weights()
         self.to(self.device)
 
     @property
@@ -134,6 +145,100 @@ class FiT(nn.Module):
         if self._loss_score is None:
             raise RuntimeError("loss_score tensor has not been set yet.")
         return self._loss_score
+
+    def init_weights(self):
+        self.apply(self._init_weights)
+        self._init_final_head()
+
+    def _init_weights(self, module):
+        """
+        General initialization logic applied to all sub-modules.
+        """
+        # --- Linear Layers (Transformer & Head Hidden) ---
+        if isinstance(module, nn.Linear):
+            # Xavier Uniform is standard for Transformers (maintains variance)
+            nn.init.xavier_uniform_(module.weight)
+            if module.bias is not None:
+                nn.init.zeros_(module.bias)
+
+        # --- Convolutional Layers (Tokenizer) ---
+        elif isinstance(module, nn.Conv1d):
+            # Kaiming/He Normal is best for Convolutions + GELU/ReLU
+            nn.init.kaiming_normal_(module.weight, mode="fan_out", nonlinearity="relu")
+            if module.bias is not None:
+                nn.init.zeros_(module.bias)
+
+        # --- Normalization Layers (LayerNorm / BatchNorm) ---
+        elif isinstance(module, (nn.LayerNorm, nn.BatchNorm1d)):
+            # Initialize as Identity (Weight=1, Bias=0)
+            # This prevents normalization layers from distorting data early on
+            nn.init.ones_(module.weight)
+            nn.init.zeros_(module.bias)
+
+        # --- Embeddings (Dow/Features) ---
+        elif isinstance(module, nn.Embedding):
+            # Small random normal distribution
+            nn.init.normal_(module.weight, mean=0, std=0.02)
+
+    def _init_final_head(self):
+        """
+        Specific initialization for the output layers of the multi-task heads.
+        Adapts based on the task type (Regression vs Classification).
+        """
+        # Dictionary mapping: 'attribute_name': 'task_type'
+        # Adjust these names if your heads are named differently
+        heads_config = {
+            "reg_head": "regression",  # Target: Standardized Log Returns
+            "cls_head": "classification",  # Target: Direction/Trend
+        }
+
+        for head_name, task_type in heads_config.items():
+            # 1. Check if the head exists in the model
+            if not hasattr(self, head_name):
+                continue
+
+            module_wrapper = getattr(self, head_name)
+
+            # 2. Dig for the actual final Linear layer
+            # Your RegressionHead stores the layers in self.net
+            if hasattr(module_wrapper, "net"):
+                inner_module = module_wrapper.net
+            else:
+                inner_module = module_wrapper
+
+            output_layer = None
+
+            # Case A: The head is just a single Linear layer
+            if isinstance(inner_module, nn.Linear):
+                output_layer = inner_module
+
+            # Case B: The head is a Sequential block (Linear -> GELU -> Linear)
+            elif isinstance(inner_module, nn.Sequential):
+                # Iterate backwards to find the last Linear layer
+                for layer in reversed(inner_module):
+                    if isinstance(layer, nn.Linear):
+                        output_layer = layer
+                        break
+
+            # 3. Apply Task-Specific Initialization
+            if output_layer is not None:
+                if task_type == "regression":
+                    # REGRESSION: Force predictions to start near 0 (Mean of target)
+                    nn.init.uniform_(output_layer.weight, -0.001, 0.001)
+                    print(
+                        f"Initialized {head_name} (Regression) with near-zero weights."
+                    )
+
+                elif task_type == "classification":
+                    # CLASSIFICATION: Standard Xavier for balanced probabilities (50/50)
+                    nn.init.xavier_uniform_(output_layer.weight, gain=1.0)
+                    print(
+                        f"Initialized {head_name} (Classification) with Xavier weights."
+                    )
+
+                # Always zero out bias to prevent initial offset
+                if output_layer.bias is not None:
+                    nn.init.zeros_(output_layer.bias)
 
     def _input_to_device(self, batch: dict):
         for k, v in batch.items():
@@ -193,6 +298,7 @@ class FiT(nn.Module):
 
         self._loss_score = self.loss(model_out, target, task)
         self._loss_score.backward()
+        torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=1.0)
         self.optimizer.step()
 
     # ---- save/load methods ----
