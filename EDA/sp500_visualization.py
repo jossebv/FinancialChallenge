@@ -1,10 +1,9 @@
 import os
-from mpmath import log, plot
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 import seaborn as sns
-from seaborn.utils import DATASET_NAMES_URL
 
 
 def load_data(path: str) -> pd.DataFrame:
