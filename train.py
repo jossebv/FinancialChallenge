@@ -1,9 +1,11 @@
 import os
-import sys
 import shutil
+import sys
+
 import neptune
 import numpy as np
 from tqdm import tqdm
+
 from data.dataloader import FinanceDataLoader
 from models.FiT import FiT
 from options.options import Opt
@@ -42,9 +44,9 @@ def init_training(options_path: str):
     total_steps = 0
     for epoch in range(opt.epochs):
         model.train()
-        for data in tqdm(loader, desc=f"Epoch {epoch}", file=sys.stdout):
+        for data in tqdm(loader, desc=f"Epoch {epoch}"):
             total_steps += 1
-            model.backward(data)
+            model.backward(data, "reg")
 
             if total_steps % opt.log_step == 0:
                 loss = model.loss_score.item()

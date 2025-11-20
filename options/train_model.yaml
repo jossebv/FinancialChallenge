@@ -1,11 +1,11 @@
-name: "test"
+name: "test_lr"
 neptune_project_name: "FinancialChallenge"
 neptune_group_tags: ["train", "window"]
 phase: "train"
 dataroot: "data/processed/es1dia_cln.csv"
 checkpoints_path: "checkpoints/"
-window: 50
-window_stride: 25
+window: 15
+window_stride: 1
 reg_feature: "log_return"
 cls_feature: "day_class"
 features: [
@@ -20,14 +20,14 @@ features: [
     ]
 masked_features: ["log_return", "log_range", "vol_z"]
 shuffle: True
-batch_size: 16
-num_workers: 1
-d_model: 128
+batch_size: 128
+num_workers: 8
+d_model: 32
 dow_embedding_dim: 4
-k: 5
-s: 2 # will default to k (=5)
-nhead: 2
-t_num_layers: 3
+k: 3
+s: 3 # will default to k (=5)
+nhead: 4
+t_num_layers: 10
 task_type: "reg"
 lr: 0.0001
 margin_eps: 0.0005
