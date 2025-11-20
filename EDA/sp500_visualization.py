@@ -1,8 +1,10 @@
 import os
+from mpmath import log, plot
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+from seaborn.utils import DATASET_NAMES_URL
 
 
 def load_data(path: str) -> pd.DataFrame:
@@ -48,6 +50,14 @@ def load_data(path: str) -> pd.DataFrame:
     )
     print(data.head())
     return data
+
+
+def load_clean_data(
+    path: str,
+) -> pd.DataFrame:
+    data = pd.read_csv(path, index_col=0)
+    data.fillna(0, inplace=True)
+    return pd.DataFrame(data)
 
 
 def plot_data(data: pd.DataFrame, save_path=None):
@@ -145,15 +155,84 @@ def plot_returns_dist(data: pd.DataFrame, save_path=None):
     fig.savefig(os.path.join(save_path, "returns_dist.png"))
 
 
+def plot_log_return_autocorr(data: pd.DataFrame, save_path=None, max_lag: int = 50):
+    """Plot autocorrelation of log returns to show dependence on past values."""
+    log_returns = data["log_return"].dropna().to_numpy()
+    if log_returns.size == 0:
+        raise ValueError("No log_return values available for autocorrelation plot.")
+
+    centered = log_returns - log_returns.mean()
+    denom = np.sum(centered**2)
+    acf = [1.0]
+    for lag in range(1, max_lag + 1):
+        numer = np.sum(centered[:-lag] * centered[lag:])
+        acf.append(numer / denom if denom != 0 else 0.0)
+
+    lags = np.arange(max_lag + 1)
+    fig, ax = plt.subplots(figsize=(12, 6))
+    markerline, stemlines, baseline = ax.stem(lags, acf)
+    plt.setp(stemlines, linewidth=1.5)
+    plt.setp(markerline, markersize=4)
+
+    conf_level = 1.96 / np.sqrt(log_returns.size)
+    ax.axhspan(
+        -conf_level,
+        conf_level,
+        alpha=0.15,
+        color="tab:orange",
+        label="95% confidence",
+    )
+    ax.axhline(0, color="black", linewidth=0.8)
+    ax.set_xlim(0, max_lag)
+    ax.set_xlabel("Lag")
+    ax.set_ylabel("Autocorrelation")
+    ax.set_title("Autocorrelation of log returns")
+    ax.grid(alpha=0.3)
+    ax.legend(loc="upper right")
+
+    if len(acf) > 1:
+        acf_non_zero = np.array(acf[1:])
+        y_min = min(acf_non_zero.min(), -conf_level)
+        y_max = max(acf_non_zero.max(), conf_level)
+        span = y_max - y_min
+        pad = max(0.02, span * 0.15 if span > 0 else 0.05)
+        # ax.set_ylim(y_min - pad, y_max + pad)
+
+    fig.tight_layout()
+
+    if save_path is not None:
+        fig.savefig(os.path.join(save_path, "log_return_autocorr.png"), dpi=200)
+
+
+def plot_classes_dist(data, eps: float, save_path: str):
+    reg_y = data["log_return"]
+    classes = pd.cut(
+        reg_y,
+        bins=[-np.inf, -eps, eps, np.inf],
+        labels=["Bearish", "Neutral", "Bullish"],
+    )
+    sns.countplot(x=classes, palette=["tab:red", "tab:gray", "tab:green"])
+    plt.xlabel("Class")
+    plt.ylabel("Count")
+    plt.title("Distribution of log returns")
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_path, "log_return_classes.png"), dpi=200)
+
+
 if __name__ == "__main__":
     DATA_PATH = "data/raw/es1dia.txt"
+    DATA_CLEAN_PATH = "data/processed/es1dia_cln.csv"
     FIG_SAVE_PATH = "EDA/figures"
-    data = load_data(DATA_PATH)
-    plot_data(data, FIG_SAVE_PATH)
-    plot_input_data(data, FIG_SAVE_PATH)
-    plot_output_data(data, FIG_SAVE_PATH)
-    plot_cat_corr(data, FIG_SAVE_PATH)
-    plot_pairs_corr(data, FIG_SAVE_PATH)
-    plot_returns_dist(data, FIG_SAVE_PATH)
+    # data = load_data(DATA_PATH)
+    data = load_clean_data(DATA_CLEAN_PATH)
+    # plot_data(data, FIG_SAVE_PATH)
+    # plot_input_data(data, FIG_SAVE_PATH)
+    # plot_output_data(data, FIG_SAVE_PATH)
+    # plot_cat_corr(data, FIG_SAVE_PATH)
+    # plot_pairs_corr(data, FIG_SAVE_PATH)
+    # plot_returns_dist(data, FIG_SAVE_PATH)
+    # plot_log_return_autocorr(data, FIG_SAVE_PATH)
+    plot_classes_dist(data, 0.0025, FIG_SAVE_PATH)
 
     data.to_csv("data/processed/es1dia_cln.csv")
