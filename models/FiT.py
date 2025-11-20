@@ -1,6 +1,7 @@
+from typing import Literal, Optional
+
 import torch
 from torch import nn
-from typing import Optional, Literal
 
 
 class FiTokenizer(nn.Module):
@@ -116,7 +117,8 @@ class FiT(nn.Module):
         self.optimizer = torch.optim.AdamW(self.parameters(), lr=opt.lr)
         self._loss_score: Optional[torch.Tensor] = None
 
-        self.margin_eps = opt.margin_eps
+        self.lambda_reg = opt.lambda_reg
+        self.lambda_cls = opt.lambda_cls
 
         if self.task_type in ("reg", "multi"):
             self.reg_head = RegressionHead(opt)
@@ -141,45 +143,39 @@ class FiT(nn.Module):
 
     def loss(
         self,
-        prediction: torch.Tensor,
-        target: torch.Tensor,
-        y_raw: Optional[torch.Tensor] = None,
-        task: Literal["reg", "cls"] = "reg",
+        prediction: dict[str, torch.Tensor] | torch.Tensor,
+        target: dict[str, torch.Tensor],
+        task: Literal["reg", "cls", "multi"],
     ) -> torch.Tensor:
+        target_reg = target["reg"]
+        target_cls = target["cls"]
         if task == "reg":
-            return self.reg_loss(prediction, target)
-
+            return self.reg_loss(prediction, target_reg)
         elif task == "cls":
-            if self.margin_eps is not None and y_raw is not None:
-                mask = y_raw > self.margin_eps
-            else:
-                mask = None
-
-            if mask is not None and mask.any():
-                loss = self.cls_loss(
-                    prediction[mask],
-                    target[mask],
-                )
-            else:
-                loss = self.cls_loss(prediction, target)
-
+            return self.cls_loss(prediction, target_cls)
+        else:
+            reg_loss = self.reg_loss(prediction, target_reg)
+            cls_loss = self.cls_loss(prediction, target_cls)
+            loss = self.lambda_reg * reg_loss + self.lambda_cls * cls_loss
             return loss
 
-    def forward(self, x: dict, task: Optional[Literal["reg", "cls"]] = None):
+    def forward(
+        self, x: dict, task: Optional[Literal["reg", "cls"]] = None
+    ) -> dict[str, torch.Tensor] | torch.Tensor:
         z = self.backbone(x)  # (B, D)
         if self.task_type == "reg":
             return self.reg_head(z)  # (B,)
         elif self.task_type == "cls":
             return self.cls_head(z)  # (B,) logits
         else:  # "multi"
-            return self.reg_head(z) if task == "reg" else self.cls_head(z)
+            return {"reg": self.reg_head(z), "cls": self.cls_head(z)}
 
     def pred(self, batch: dict, task: Optional[Literal["reg", "cls"]] = None):
         batch = self._input_to_device(batch)
         pred = self(batch)
         return pred
 
-    def backward(self, batch: dict, task: Literal["reg", "cls"] = "reg"):
+    def backward(self, batch: dict, task: Optional[Literal["reg", "cls"]] = None):
         """
         Run one training step: forward pass, loss computation, backpropagation,
         and optimizer update.
@@ -191,13 +187,12 @@ class FiT(nn.Module):
         batch = self._input_to_device(batch)
         self.optimizer.zero_grad(set_to_none=True)
 
-        y_hat = self(batch)
-        target = batch["y_reg"] if self.task_type == "reg" else batch["y_cls"]
-        y_raw = batch["y_reg"] if self.task_type == "reg" else batch["y_cls"]
-        task = self.task_type if self.task_type in ["reg", "cls"] else task
+        model_out = self(batch)
+        target = {"reg": batch["y_reg"], "cls": batch["y_cls"]}
+        task = task if task is not None else self.task_type
 
-        self._loss_score = self.loss(y_hat, target, y_raw, task)
-        self.loss_score.backward()
+        self._loss_score = self.loss(model_out, target, task)
+        self._loss_score.backward()
         self.optimizer.step()
 
     # ---- save/load methods ----
@@ -209,7 +204,7 @@ class FiT(nn.Module):
         print(f"✅ Saved weights to {path}")
 
     def load_from_checkpoint(
-        self, path: str, what: str = "full", map_location="cpu", strict: bool = True
+        self, path: str, what: str = "full", map_location="cpu", strict: bool = False
     ):
         """
         Load weights from checkpoint.
