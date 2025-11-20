@@ -53,6 +53,7 @@ rfc3986-validator==0.1.1
 rfc3987-syntax==1.1.0
 rpds-py==0.27.1
 s3transfer==0.14.0
+scipy==1.15.3
 seaborn==0.13.2
 simplejson==3.20.2
 six==1.17.0
