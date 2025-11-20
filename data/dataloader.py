@@ -1,10 +1,11 @@
 import math
+import sys
+from typing import List, Literal
+
+import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader, Dataset
-from typing import Literal, List
-
-import sys
 
 sys.path.append(".")
 
@@ -22,6 +23,7 @@ class SequenceWindowDataset(Dataset):
         self.stride = opt.window_stride or self.window if opt.phase == "train" else 1
         self.drop_tail = opt.drop_tail
         self.reg_feature = opt.reg_feature
+        self.cls_feature = opt.cls_feature
         self.features = opt.features
         self.masked_features = [
             masked_feature
@@ -45,12 +47,24 @@ class SequenceWindowDataset(Dataset):
                 # include one more sample if there is a remainder (pad the end with the last row)
                 self._n = 1 + math.ceil(max_start / self.stride)
 
+    def _standardize(self, data: pd.DataFrame):
+        num_data = data.select_dtypes(include="number")
+        mean = num_data.mean()
+        std = num_data.std()
+        num_data = (num_data - mean) / std
+        data = num_data.merge(
+            data.select_dtypes(exclude="number"), left_index=True, right_index=True
+        )
+        return data, mean, std
+
     def load_data(
         self,
         dataroot: str,
         features: List[str],
         train_ratio: float = 0.85,
         phase: Literal["train", "test"] = "train",
+        standardize: bool = True,
+        class_eps: float = 0.0025,
     ) -> pd.DataFrame:
         data = pd.read_csv(dataroot, index_col=0)
         data.fillna(0, inplace=True)
@@ -58,6 +72,16 @@ class SequenceWindowDataset(Dataset):
         data = data[:N] if phase == "train" else data[N:]
         if phase == "train":
             data = data[features]
+        # Apply standardization before adding the class
+        # This is done because the method standardizes every numeric value
+        if standardize:
+            data, _, _ = self._standardize(data)
+        data[self.cls_feature] = pd.cut(
+            data["log_return"],
+            bins=[-np.inf, -class_eps, class_eps, np.inf],
+            labels=False,
+        )
+        self.cls_labels = {"Bearish": 0, "Neutral": 1, "Bullish": 2}
         return pd.DataFrame(data)
 
     def __len__(self) -> int:
@@ -79,8 +103,6 @@ class SequenceWindowDataset(Dataset):
             if not isinstance(window, pd.DataFrame):
                 raise RuntimeError("Window slice should be a DataFrame")
 
-            target_idx = window.index[-1]
-            y_reg = torch.Tensor([window.loc[target_idx, self.reg_feature]])
             X = window[self.features].copy()
             if "dow" in self.features:
                 X = X.drop(columns=["dow"])
@@ -88,10 +110,15 @@ class SequenceWindowDataset(Dataset):
             else:
                 dow = None
 
-            X.loc[target_idx, self.masked_features] = 0
+            X.loc[-1:, self.masked_features] = 0
             X = torch.Tensor(X.to_numpy())
+            y_reg = torch.Tensor([window[-1:][self.reg_feature].item()])
+            y_cls = torch.Tensor([window[-1:][self.cls_feature].item()])
 
-        else:  ## TODO: adapt dataloader to generate a mask
+        else:
+            # TODO: complete this section
+            # this is accessed when the last row is not completed
+            #
             # Need to pad the tail by repeating the final row
             return {}
             needed = end - T
@@ -99,7 +126,12 @@ class SequenceWindowDataset(Dataset):
             pad = self.X[T - 1 : T].repeat(needed, 1)
             window = torch.cat([base, pad], dim=0)
 
-        batch = {"features": X, "dow": dow, "y_reg": y_reg, "window": window}
+        batch = {
+            "features": X,
+            "dow": dow,
+            "y_reg": y_reg,
+            "y_cls": y_cls,
+        }
         if self.return_window:
             batch["window"] = window
         return batch
