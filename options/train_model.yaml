@@ -1,12 +1,13 @@
-name: "window_sweep"
+name: "test"
 neptune_project_name: "FinancialChallenge"
 neptune_group_tags: ["train", "window"]
 phase: "train"
 dataroot: "data/processed/es1dia_cln.csv"
 checkpoints_path: "checkpoints/"
 window: 50
-window_stride: null
+window_stride: 25
 reg_feature: "log_return"
+cls_feature: "day_class"
 features: [
         "overnight_gap",
         "log_return",

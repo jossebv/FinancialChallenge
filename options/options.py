@@ -1,7 +1,8 @@
 import os
-from dataclasses import MISSING, dataclass, asdict, replace
 from collections.abc import Mapping
-from typing import Literal, Any
+from dataclasses import MISSING, asdict, dataclass, replace
+from typing import Any, Literal
+
 import torch
 import yaml
 
@@ -18,6 +19,7 @@ class Opt:
     # --- Data / paths ---
     dataroot: str
     reg_feature: str
+    cls_feature: str
     features: list[str]
     masked_features: list[str]
     checkpoints_path: str
@@ -39,6 +41,8 @@ class Opt:
     nhead: int = 4
     t_num_layers: int = 2
     head_hidden: int = 0  # 0 = single linear
+    lambda_reg: float = 1.0  # Used in multitask schema
+    lambda_cls: float = 1.0  # Used in multitask schema
 
     # --- Task / training ---
     epochs: int = 50
