@@ -11,8 +11,8 @@ cls_feature: "day_class"
 features: [
         "overnight_gap",
         "log_return",
-        "log_range",
-        "volatility_5",
+        # "log_range",
+        # "volatility_5",
         "volatility_20",
         "vol_z",
         # "days_elapsed_z",
@@ -31,4 +31,4 @@ t_num_layers: 10
 task_type: "reg"
 lr: 0.0001
 margin_eps: 0.0005
-device: "cuda"
+device: "mps"
