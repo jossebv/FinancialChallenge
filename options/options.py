@@ -60,6 +60,9 @@ class Opt:
     device: str | torch.device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # --- Derived / validation ---
+    mean: Any = None
+    std: Any = None
+
     def __post_init__(self):
         # Because dataclass is frozen, use object.__setattr__
         if self.s is None:
@@ -81,15 +84,16 @@ class Opt:
         )
         object.__setattr__(self, "device", dev)
 
-        checkpoints_exist_ok = self.phase == "test"
+        # Basic validation
+        if not os.path.exists(self.dataroot):
+            raise ValueError(f"path {self.dataroot} does not exist")
+        # Ensure checkpoints directory creation is handled safely
+        checkpoints_exist_ok = True
         os.makedirs(
             os.path.join(self.checkpoints_path, self.name),
             exist_ok=checkpoints_exist_ok,
         )
 
-        # Basic validation
-        if not os.path.exists(self.dataroot):
-            raise ValueError(f"path {self.dataroot} does not exist")
         if self.split_ratio > 1 or self.split_ratio < 0:
             raise ValueError(
                 f"split_ratio must be between 0 and 1, got {self.split_ratio}"
@@ -128,6 +132,11 @@ class Opt:
     def to_dict(self) -> dict:
         d = asdict(self)
         d["device"] = str(self.device)
+        # Exclude large data objects from dict representation
+        if "mean" in d:
+            del d["mean"]
+        if "std" in d:
+            del d["std"]
         return d
 
     @classmethod

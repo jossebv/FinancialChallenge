@@ -31,7 +31,12 @@ class SequenceWindowDataset(Dataset):
             if masked_feature in self.features
         ]
         self.data = self.load_data(
-            opt.dataroot, opt.features, opt.split_ratio, opt.phase
+            opt.dataroot, 
+            opt.features, 
+            opt.split_ratio, 
+            opt.phase,
+            mean=opt.mean,
+            std=opt.std
         )
         self.return_window = opt.return_window
 
@@ -47,10 +52,13 @@ class SequenceWindowDataset(Dataset):
                 # include one more sample if there is a remainder (pad the end with the last row)
                 self._n = 1 + math.ceil(max_start / self.stride)
 
-    def _standardize(self, data: pd.DataFrame):
+    def _standardize(self, data: pd.DataFrame, mean=None, std=None):
         num_data = data.select_dtypes(include="number")
-        mean = num_data.mean()
-        std = num_data.std()
+        if mean is None:
+            mean = num_data.mean()
+        if std is None:
+            std = num_data.std()
+        
         num_data = (num_data - mean) / std
         data = num_data.merge(
             data.select_dtypes(exclude="number"), left_index=True, right_index=True
@@ -65,6 +73,8 @@ class SequenceWindowDataset(Dataset):
         phase: Literal["train", "test"] = "train",
         standardize: bool = True,
         class_eps: float = 0.0025,
+        mean=None,
+        std=None,
     ) -> pd.DataFrame:
         data = pd.read_csv(dataroot, index_col=0)
         data.fillna(0, inplace=True)
@@ -72,16 +82,26 @@ class SequenceWindowDataset(Dataset):
         data = data[:N] if phase == "train" else data[N:]
         if phase == "train":
             data = data[features]
-        # Apply standardization before adding the class
-        # This is done because the method standardizes every numeric value
-        if standardize:
-            data, _, _ = self._standardize(data)
+        
+        # Calculate labels BEFORE standardization to ensure consistency
         data[self.cls_feature] = pd.cut(
             data["log_return"],
             bins=[-np.inf, -class_eps, class_eps, np.inf],
             labels=False,
         )
         self.cls_labels = {"Bearish": 0, "Neutral": 1, "Bullish": 2}
+
+        # Apply standardization
+        if standardize:
+            # IMPORTANT: classification feature should not be standardized
+            cls_col = data[self.cls_feature]
+            data = data.drop(columns=[self.cls_feature])
+            
+            data, self.mean, self.std = self._standardize(data, mean, std)
+            
+            # Add back the classification feature
+            data[self.cls_feature] = cls_col
+
         return pd.DataFrame(data)
 
     def __len__(self) -> int:
@@ -109,8 +129,15 @@ class SequenceWindowDataset(Dataset):
                 dow = torch.Tensor(window["dow"].to_numpy()).to(torch.int32)
             else:
                 dow = None
+            
+            # Fix masking to ensure we only mask the LAST row of the window
+            # Use iloc for positional indexing
+            # Check if columns exist before assignment
+            mask_cols = [c for c in self.masked_features if c in X.columns]
+            if mask_cols:
+                # Set the last row (-1) for these columns to 0
+                X.iloc[-1, X.columns.get_indexer(mask_cols)] = 0
 
-            X.loc[-1:, self.masked_features] = 0
             X = torch.Tensor(X.to_numpy())
             y_reg = torch.Tensor([window[-1:][self.reg_feature].item()])
             y_cls = torch.Tensor([window[-1:][self.cls_feature].item()])

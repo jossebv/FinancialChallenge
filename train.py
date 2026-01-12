@@ -34,11 +34,27 @@ def init_training(options_path: str):
     model = FiT(opt)
     loader = FinanceDataLoader(opt)
 
+    # Save training stats for testing
+    stats_path = os.path.join(checkpoints_dir, "stats.pt")
+    torch.save(
+        {
+            "mean": loader.dataset.mean,
+            "std": loader.dataset.std,
+            "cls_labels": loader.dataset.cls_labels,
+        },
+        stats_path,
+    )
+
     test_opt = opt.to_dict()
     test_opt["phase"] = "test"
     test_opt["batch_size"] = 1
     test_opt["num_workers"] = 1
+    test_opt["shuffle"] = False # Ensure shuffle is False for testing
     test_opt = opt.from_dict(test_opt)
+
+    # Pass training stats to test loader
+    test_opt = test_opt.updated(mean=loader.dataset.mean, std=loader.dataset.std)
+    
     test_loader = FinanceDataLoader(test_opt)
 
     total_steps = 0
