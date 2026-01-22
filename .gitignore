@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# Challenge Specific Artifacts
+checkpoints/
+checkpoints_ae/
+*.pth
+data_stats.txt
+*.log
+
+# Neptune
+.neptune/
+
+# Optuna / Temp
+best_params.yaml
+best_params_regression_r1.yaml

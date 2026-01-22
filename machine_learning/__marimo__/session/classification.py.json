@@ -1,0 +1,89 @@
+{
+  "version": "1",
+  "metadata": {
+    "marimo_version": "0.19.4"
+  },
+  "cells": [
+    {
+      "id": "MJUe",
+      "code_hash": "b11f862ba9940311bbf382f2fa6e1776",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"evaluation-of-the-model\">Evaluation of the model</h2>\n<span class=\"paragraph\">Here are defined the functions necessary to evaluate and obtain the metrics of the different models</span></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "bkHC",
+      "code_hash": "5b6478c442998e21bc92ac3dc416ae6b",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"linear-regression\">Linear Regression</h2>\n<span class=\"paragraph\">We will start looking for the best possible length of the window by doing a grid search</span></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "Xref",
+      "code_hash": "0faa446e32520564f1526460b8d665ca",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"support-vector-regressor\">Support Vector Regressor</h2>\n<span class=\"paragraph\">The following cells train and evaluate a SVR model</span></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "Hbol",
+      "code_hash": "0e2ce260e1efc9b3633572ecdac04d5a",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "vblA",
+      "code_hash": "d3923c1fd26a60a26478e2a69970b51f",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "lEQa",
+      "code_hash": "e2fce822db6cfc9363ef75326f537efc",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "PKri",
+      "code_hash": "ba4b72c2e9113ca08b84acd908350c1d",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "SFPL",
+      "code_hash": "3ab0319f514f66f10656fe3c57e7306d",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "BYtC",
+      "code_hash": "a266f49a7be71d9322e2bad2155d57eb",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "RGSE",
+      "code_hash": "8d6512c0d133adb14c90fe1abeb67778",
+      "outputs": [],
+      "console": []
+    }
+  ]
+}

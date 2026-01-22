@@ -1,0 +1,35 @@
+# Data Configuration
+data_path: "data/processed/es1dia_cln.csv"
+output_dir: "checkpoints"
+
+# Feature Selection
+# Note: 'open' is implicit in intraday_return calculation but not used as feature
+past_features:
+  - "log_return"
+  - "vol_z"
+  - "log_range"
+  - "volatility_5"
+  - "volatility_20"
+
+current_features:
+  - "overnight_gap"
+  - "dow"
+  - "month"
+
+# Training Hyperparameters
+window_size: 10
+batch_size: 64
+epochs: 50
+learning_rate: 3.0e-4
+weight_decay: 1.0e-2
+
+# Model Architecture
+d_model: 64
+nhead: 4
+num_layers: 3
+dim_feedforward: 64
+dropout: 0.29
+kernel_size: 7
+
+# Task Setting (Change this to 'classification' for the other task)
+task_type: "classification" 
